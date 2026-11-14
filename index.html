@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>টেলিটক নোটিশ বোর্ড</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f5f3;--card:#fff;--ink:#16221c;--mute:#5d6b63;--line:#d9e1dc;--g:#006a4e;--red:#d6293e;
+--admit:#0b5cad;--result:#7a3fb0;--circular:#006a4e;--notice:#8a6d00}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1713;--card:#17211b;--ink:#e6efe9;--mute:#97a79d;--line:#2a372f;--g:#3ec28f;--red:#ff6b7d;
+--admit:#6db3ff;--result:#c79bf2;--circular:#3ec28f;--notice:#e6c04d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Noto Sans Bengali",system-ui,sans-serif}
+header,main{max-width:900px;margin:0 auto;padding:16px}
+h1{margin:8px 0 2px;font-size:1.5rem}
+.sub{color:var(--mute);font-size:.9rem}
+.tabs{display:flex;gap:8px;margin:14px 0}
+.tabs button,.bar button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:6px 14px;border-radius:8px;cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--g);color:#fff;border-color:var(--g)}
+.bar{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px}
+.bar input,.bar select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);min-width:0}
+.bar .row2{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.item{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--c,var(--g));border-radius:8px;padding:10px 14px;margin:8px 0}
+.item a{color:var(--ink);font-weight:600;text-decoration:none}
+.item a:hover{text-decoration:underline}
+.item.read{opacity:.6}
+.meta{font-size:.82rem;color:var(--mute);display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+.tag{font-weight:700;color:var(--c)}
+.new{background:var(--red);color:#fff;border-radius:6px;padding:0 7px;font-size:.75rem;margin-right:6px}
+.gone{text-decoration:line-through}
+.empty{padding:30px;text-align:center;color:var(--mute)}
+:focus-visible{outline:3px solid var(--g);outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>টেলিটক নোটিশ বোর্ড</h1>
+  <div class="sub" id="stat">লোড হচ্ছে…</div>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-t="notices" aria-selected="true">নোটিশ</button>
+    <button role="tab" data-t="history" aria-selected="false">আপডেটের ইতিহাস</button>
+    <button role="tab" data-t="sites" aria-selected="false">ওয়েবসাইট</button>
+  </div>
+  <div class="bar">
+    <input id="q" type="search" placeholder="খুঁজুন…" aria-label="খুঁজুন">
+    <select id="type" aria-label="ধরন"></select>
+    <select id="host" aria-label="প্রতিষ্ঠান"></select>
+    <div class="row2">
+      <label>থেকে <input id="d1" type="date"></label>
+      <label>পর্যন্ত <input id="d2" type="date"></label>
+      <button id="readall">সব পড়া হয়েছে</button>
+    </div>
+  </div>
+</header>
+<main id="out"></main>
+<script>
+const TYPES={admit:"অ্যাডমিট কার্ড",result:"ফলাফল",circular:"নিয়োগ বিজ্ঞপ্তি",notice:"নোটিশ",site:"নতুন সাইট",down:"সাইট বন্ধ",up:"সাইট চালু",removed:"সরানো হয়েছে"};
+const $=s=>document.querySelector(s);
+let DB={sites:{},items:{},history:[]},tab="notices",READ=new Set();
+try{READ=new Set(JSON.parse(localStorage.getItem("read")||"[]"))}catch(e){}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=t=>new Date(t).toLocaleString("bn-BD",{dateStyle:"medium",timeStyle:"short"});
+const isNew=i=>!i.base&&Date.now()-new Date(i.first_seen)<48*36e5;
+function fill(){
+  $("#type").innerHTML='<option value="">সব ধরন</option>'+["admit","result","circular","notice"].map(k=>`<option value="${k}">${TYPES[k]}</option>`).join("");
+  $("#host").innerHTML='<option value="">সব প্রতিষ্ঠান</option>'+Object.keys(DB.sites).sort().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join("");
+}
+function pass(o,date){
+  const q=$("#q").value.trim().toLowerCase(),ty=$("#type").value,h=$("#host").value,a=$("#d1").value,b=$("#d2").value;
+  const d=date.slice(0,10);
+  return (!q||(o.title||o.text||"").toLowerCase().includes(q)||o.host.includes(q))&&(!ty||(o.type||o.kind)==ty)&&(!h||o.host===h)&&(!a||d>=a)&&(!b||d<=b);
+}
+function render(){
+  const out=$("#out");let html="";
+  if(tab==="notices"){
+    const L=Object.values(DB.items).filter(i=>pass(i,i.first_seen)).sort((x,y)=>y.first_seen.localeCompare(x.first_seen)).slice(0,300);
+    html=L.map(i=>`<div class="item ${READ.has(i.id)?"read":""}" style="--c:var(--${i.type})">
+      <div>${isNew(i)&&!READ.has(i.id)?'<span class="new">নতুন</span>':""}<a href="${esc(i.url)}" target="_blank" rel="noopener" data-id="${i.id}" class="${i.active?"":"gone"}">${esc(i.title)}</a></div>
+      <div class="meta"><span class="tag">${TYPES[i.type]}</span><span>${esc(i.host)}</span><span>${fmt(i.first_seen)}${i.base?" (প্রথম স্ক্যানে ছিল)":""}</span></div></div>`).join("");
+  }else if(tab==="history"){
+    const L=DB.history.filter(e=>pass(e,e.time)).slice().reverse().slice(0,400);
+    html=L.map(e=>`<div class="item" style="--c:var(--${["admit","result","circular","notice"].includes(e.kind)?e.kind:"notice"})">
+      <div>${e.url?`<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.text)}</a>`:esc(e.text)}</div>
+      <div class="meta"><span class="tag">${TYPES[e.kind]||e.kind}</span><span>${esc(e.host)}</span><span>${fmt(e.time)}</span></div></div>`).join("");
+  }else{
+    html=Object.entries(DB.sites).sort().filter(([h])=>!$("#host").value||h===$("#host").value).map(([h,s])=>`<div class="item" style="--c:${s.status==="up"?"var(--g)":"var(--red)"}">
+      <div><a href="https://${esc(h)}" target="_blank" rel="noopener">${esc(s.title||h)}</a></div>
+      <div class="meta"><span>${esc(h)}</span><span>${s.status==="up"?"চালু":"বন্ধ"}</span><span>আইটেম: ${s.count||0}</span><span>শেষ চেক: ${fmt(s.last_checked)}</span></div></div>`).join("");
+  }
+  out.innerHTML=html||'<div class="empty">কিছু পাওয়া যায়নি। ফিল্টার বদলে দেখুন।</div>';
+}
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  tab=b.dataset.t;document.querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected",x===b));
+  $(".bar").style.display=tab==="sites"?"none":"";render()});
+["#q","#type","#host","#d1","#d2"].forEach(s=>$(s).addEventListener("input",render));
+$("#out").addEventListener("click",e=>{const a=e.target.closest("a[data-id]");if(a){READ.add(a.dataset.id);save()}});
+$("#readall").onclick=()=>{Object.keys(DB.items).forEach(i=>READ.add(i));save();render()};
+function save(){try{localStorage.setItem("read",JSON.stringify([...READ]))}catch(e){}}
+fetch("data/notices.json?"+Date.now()).then(r=>{if(!r.ok)throw 0;return r.json()}).then(d=>{
+  DB=d;fill();
+  const n=Object.values(DB.items).filter(i=>isNew(i)&&!READ.has(i.id)).length;
+  $("#stat").textContent=`${Object.keys(DB.sites).length}টি সাইট · ${n}টি নতুন · সর্বশেষ আপডেট: ${fmt(DB.updated)}`;
+  render();
+}).catch(()=>{$("#stat").textContent="";$("#out").innerHTML='<div class="empty">ডাটা ফাইল এখনো তৈরি হয়নি। GitHub-এর Actions ট্যাব থেকে "Teletalk Watch" একবার চালান।</div>'});
+</script>
+</body>
+</html>
