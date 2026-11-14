@@ -30,6 +30,22 @@ def classify(text, href):
     return "notice" if href.lower().endswith(".pdf") else None
 
 
+# bare menu labels such as "Admit Card" exist on every site all year: not a real publication
+GENERIC = re.compile(
+    r"^(home|admit card|admit|result|results|notice|notices|circular|circulars|news|apply|apply online|"
+    r"নোটিশ|ফলাফল|প্রবেশপত্র|এডমিট কার্ড|অ্যাডমিট কার্ড|নিয়োগ বিজ্ঞপ্তি|বিজ্ঞপ্তি)$", re.I)
+
+
+def in_menu(a):
+    for p in a.parents:
+        if p.name in ("nav", "header", "footer"):
+            return True
+        c = " ".join(p.get("class", [])) + " " + (p.get("id") or "")
+        if re.search(r"nav|menu|header|footer|breadcrumb", c, re.I):
+            return True
+    return False
+
+
 def get(url):
     for u in (url, url.replace("https://", "http://")):
         try:
@@ -80,6 +96,9 @@ def scrape(host):
             text = re.sub(r"\s+", " ", a.get_text(" ", strip=True))
             href = urljoin(p.url, a["href"])
             if len(text) < 4 or len(text) > 300 or href.startswith(("javascript", "mailto", "tel")):
+                continue
+            is_pdf = href.lower().split("?")[0].endswith(".pdf")
+            if not is_pdf and (in_menu(a) or GENERIC.match(text.strip(" :-|"))):
                 continue
             typ = classify(text, href)
             if not typ:
